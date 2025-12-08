@@ -15,6 +15,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "eva2LopezJorge_app",
     "eva2Trabajador_app",
+    "Eva3Api",
 ]
 
 MIDDLEWARE = [
