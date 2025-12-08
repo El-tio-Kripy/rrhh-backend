@@ -8,4 +8,6 @@ urlpatterns = [
     path("liquidaciones/", include("eva2Trabajador_app.urls")),
     path("api/token/", obtain_auth_token),  # ← pedir token
     path("api/", include("Eva3Api.urls")),  # ← tus endpoints REST
+    path("api/token/", obtain_auth_token),
+    path("api/", include("Eva3Api.urls")),
 ]
