@@ -13,8 +13,11 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "rest_framework",
+    "rest_framework.authtoken",
     "eva2LopezJorge_app",
     "eva2Trabajador_app",
+    "Eva3Api",
 ]
 
 MIDDLEWARE = [
