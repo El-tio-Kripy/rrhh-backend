@@ -1,22 +1,19 @@
 from django.urls import path
 
-from .views import TrabajadorDetailView
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from .views import ApiHomeView, TrabajadorDetailView
 
-class ApiHomeView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        return Response({
-            "mensaje": "API EVA2 funcionando",
-            "endpoints": {
-                "detalle_trabajador": request.build_absolute_uri("/api/trabajador/<rut>/"),
-            }
-        })
+app_name = "Eva3Api"
 
 urlpatterns = [
-    path("", ApiHomeView.as_view(), name="api-home"),
-    path("trabajador/<str:rut>/", TrabajadorDetailView.as_view(), name="trabajador-detail"),
+    # Home de la API
+    # GET /api/
+    path("", ApiHomeView.as_view(), name="api_home"),
+
+    # Detalle de trabajador por RUT
+    # GET /api/trabajador/<rut>/
+    path(
+        "trabajador/<str:rut>/",
+        TrabajadorDetailView.as_view(),
+        name="trabajador_detail",
+    ),
 ]

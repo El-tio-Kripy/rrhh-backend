@@ -1,52 +1,25 @@
 from rest_framework import serializers
 
-from eva2Trabajador_app.models import Afps, Trabajador
+from eva2Trabajador_app.models import Trabajador
 
 
 class TrabajadorSerializer(serializers.ModelSerializer):
-    afp_detalle = serializers.SerializerMethodField()
+    """
+    Serializador básico para el modelo Trabajador.
 
+    Se utiliza en el endpoint:
+        GET /api/trabajador/<rut>/
+
+    Ajusta la lista de campos según los que tengas definidos
+    en tu modelo Trabajador.
+    """
     class Meta:
         model = Trabajador
-        fields = ["rut", "nombre", "base", "afp", "afp_detalle"]
-
-    def get_afp_detalle(self, obj):
-        try:
-            afp = Afps.objects.get(nombre=obj.afp)
-        except Afps.DoesNotExist:
-            return None
-        return {"nombre": afp.nombre, "descuento": afp.descuento}
-from eva2Trabajador_app.models import Trabajador, Liquidaciones
-
-
-class TrabajadorSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Trabajador
-        fields = ["id", "rut", "nombre", "base", "afp"]
-
-
-class LiquidacionesSerializer(serializers.ModelSerializer):
-    trabajador_rut = serializers.SerializerMethodField()
-    trabajador_nombre = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Liquidaciones
+        # Si tu modelo tiene más campos, puedes agregarlos aquí.
+        # Estos son los mínimos típicos de la Eva2.
         fields = [
-            "id",
-            "trabajador_rut",
-            "trabajador_nombre",
-            "mes",
-            "anio",
-            "sbase",
-            "sbruto",
-            "desc_afp",
-            "descuentos",
-            "descuentos_totales",
-            "sueldo_liquido",
+            "rut",
+            "nombre",
+            "base",
+            "afp",
         ]
-
-    def get_trabajador_rut(self, obj):
-        return obj.trabajador.rut
-
-    def get_trabajador_nombre(self, obj):
-        return obj.trabajador.nombre
