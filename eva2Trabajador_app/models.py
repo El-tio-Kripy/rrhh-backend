@@ -1,161 +1,152 @@
-from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Sum
+from django.core.exceptions import ValidationError
 
 
-def validar_rut_mod11(value: str) -> None:
-    """
-    Valida un RUT chileno usando el módulo 11.
-    Acepta formato con puntos o sin ellos, pero DEBE tener guion y dígito verificador.
-    Ejemplo válido: 12.345.678-9
-    """
-    rut = value.replace(".", "").upper()
+# -------------------------------------------------
+# Validación RUT (Módulo 11)
+# -------------------------------------------------
+def validar_rut_mod11(rut):
+    rut = rut.replace(".", "").replace("-", "").upper()
+    if len(rut) < 2:
+        raise ValidationError("RUT inválido.")
 
-    try:
-        cuerpo, dv = rut.split("-")
-    except ValueError:
-        raise ValidationError("Formato RUT inválido. Debe incluir guion y dígito verificador.")
+    cuerpo = rut[:-1]
+    dv = rut[-1]
 
     if not cuerpo.isdigit():
-        raise ValidationError("Formato RUT inválido. El cuerpo debe ser numérico.")
+        raise ValidationError("RUT inválido.")
 
-    reversed_digits = list(map(int, reversed(cuerpo)))
-    factors = [2, 3, 4, 5, 6, 7]
+    suma = 0
+    multiplicador = 2
 
-    s = 0
-    fi = 0
-    for d in reversed_digits:
-        s += d * factors[fi]
-        fi = (fi + 1) % len(factors)
+    for digito in reversed(cuerpo):
+        suma += int(digito) * multiplicador
+        multiplicador = 9 if multiplicador == 7 else multiplicador + 1
 
-    resto = s % 11
-    dv_calc = 11 - resto
+    resto = suma % 11
+    dv_calculado = 11 - resto
 
-    if dv_calc == 11:
-        dv_esperado = "0"
-    elif dv_calc == 10:
-        dv_esperado = "K"
+    if dv_calculado == 11:
+        dv_calculado = "0"
+    elif dv_calculado == 10:
+        dv_calculado = "K"
     else:
-        dv_esperado = str(dv_calc)
+        dv_calculado = str(dv_calculado)
 
-    if dv_esperado != dv:
-        raise ValidationError("RUT inválido según módulo 11.")
+    if dv != dv_calculado:
+        raise ValidationError("Dígito verificador incorrecto.")
 
 
+# -------------------------------------------------
+# Modelo AFPs
+# -------------------------------------------------
 class Afps(models.Model):
     nombre = models.CharField(max_length=50, unique=True)
-    descuento = models.DecimalField(max_digits=5, decimal_places=2)
+    # rúbrica: porcentaje de descuento sobre sueldo base/bruto
+    descuento = models.DecimalField(max_digits=5, decimal_places=2)  # Ej: 11.45
 
-    class Meta:
-        # Tabla REAL en tu BD
-        db_table = "eva2trabajador_app_afp"
-
-    def __str__(self) -> str:
+    def __str__(self):
         return f"{self.nombre} ({self.descuento}%)"
 
+    class Meta:
+        db_table = "afps"
 
+
+# -------------------------------------------------
+# Modelo Trabajador (AFP como CharField, NO FK)
+# -------------------------------------------------
 class Trabajador(models.Model):
+    # rúbrica: sin puntos, con guion y dígito verificador
     rut = models.CharField(max_length=10, unique=True)
     nombre = models.CharField(max_length=200)
     base = models.IntegerField()
+    # rúbrica: campo texto, validado contra tabla Afps
+    afp = models.CharField(max_length=50)
 
-    # AQUÍ EL CAMBIO IMPORTANTE:
-    # ForeignKey a Afps usando la columna existente afp_id
-    afp = models.ForeignKey(
-        Afps,
-        on_delete=models.PROTECT,
-        related_name="trabajadores",
-        db_column="afp_id",
-    )
-
-    class Meta:
-        db_table = "eva2trabajador_app_trabajador"
-
-    def clean(self) -> None:
-        """
-        Valida solo el RUT (la AFP ya se valida por ser ForeignKey).
-        """
+    def clean(self):
+        # Validar RUT
         validar_rut_mod11(self.rut)
 
-    def __str__(self) -> str:
-        return f"{self.nombre} - {self.rut}"
+        # Validar existencia de AFP
+        if not Afps.objects.filter(nombre=self.afp).exists():
+            raise ValidationError("La AFP indicada no existe en la tabla AFPs.")
+
+    def __str__(self):
+        return f"{self.rut} - {self.nombre}"
+
+    class Meta:
+        db_table = "trabajador"
 
 
+# -------------------------------------------------
+# Modelo Descuentos
+# -------------------------------------------------
 class Descuentos(models.Model):
     rut = models.CharField(max_length=10)
     fecha = models.DateField()
     concepto = models.CharField(max_length=100)
     monto = models.IntegerField()
 
-    class Meta:
-        db_table = "eva2trabajador_app_descuento"
-
-    def clean(self) -> None:
-        """
-        Verifica que el RUT exista en la tabla Trabajador.
-        """
+    def clean(self):
+        # Validar existencia del trabajador asociado
         if not Trabajador.objects.filter(rut=self.rut).exists():
-            raise ValidationError({"rut": "El RUT no existe en la tabla Trabajador."})
+            raise ValidationError("El RUT indicado no pertenece a ningún trabajador.")
 
-    def __str__(self) -> str:
-        return f"{self.rut} - {self.concepto} - {self.monto}"
+    def __str__(self):
+        return f"{self.rut} - {self.concepto}"
+
+    class Meta:
+        db_table = "descuentos"
 
 
+# -------------------------------------------------
+# Modelo Liquidaciones
+# -------------------------------------------------
 class Liquidaciones(models.Model):
     rut = models.CharField(max_length=10)
     mes = models.IntegerField()
     anio = models.IntegerField()
-    sbase = models.IntegerField()
-    sbruto = models.IntegerField()
-    desc_afp = models.IntegerField()
-    descuentos = models.IntegerField()
-    descuentos_totales = models.IntegerField()
-    sueldo_liquido = models.IntegerField()
+    sbase = models.IntegerField(default=0)
+    sbruto = models.IntegerField(default=0)
+    desc_afp = models.IntegerField(default=0)
+    descuentos = models.IntegerField(default=0)
+    descuentos_totales = models.IntegerField(default=0)
+    sueldo_liquido = models.IntegerField(default=0)
 
     class Meta:
-        db_table = "eva2trabajador_app_liquidaciones"
         unique_together = ("rut", "mes", "anio")
+        db_table = "liquidaciones"
 
-    def calcular_campos(self) -> None:
-        """
-        Obtiene datos desde Trabajador, Afps y Descuentos:
-        - sbase, sbruto desde Trabajador
-        - desc_afp desde Afps (porcentaje)
-        - descuentos desde tabla Descuentos (ese RUT, año y mes)
-        - descuentos_totales = desc_afp + descuentos
-        - sueldo_liquido = sbruto - descuentos_totales
-        """
-        # Trabajador
+    def calcular_campos(self):
+        # 1) obtener trabajador
         try:
-            t = Trabajador.objects.get(rut=self.rut)
+            trabajador = Trabajador.objects.get(rut=self.rut)
         except Trabajador.DoesNotExist:
-            raise ValidationError({"rut": "El RUT no existe en la tabla Trabajador."})
+            raise ValidationError("El RUT no corresponde a ningún trabajador registrado.")
 
-        self.sbase = t.base
-        self.sbruto = t.base
+        # 2) sueldo base y bruto
+        self.sbase = trabajador.base
+        self.sbruto = trabajador.base
 
-        # AFP asociada (ahora es ForeignKey)
-        afp_obj = t.afp
-        porcentaje_afp = float(afp_obj.descuento)
-        self.desc_afp = int(self.sbase * (porcentaje_afp / 100.0))
+        # 3) descuento AFP
+        afp = Afps.objects.filter(nombre=trabajador.afp).first()
+        self.desc_afp = int(trabajador.base * (float(afp.descuento) / 100)) if afp else 0
 
-        # Descuentos adicionales
-        total_descuentos = (
-            Descuentos.objects.filter(
-                rut=self.rut,
-                fecha__year=self.anio,
-                fecha__month=self.mes,
-            ).aggregate(total=Sum("monto"))["total"]
-            or 0
+        # 4) suma de descuentos del mes
+        descuentos_mes = Descuentos.objects.filter(
+            rut=self.rut,
+            fecha__year=self.anio,
+            fecha__month=self.mes
         )
+        self.descuentos = sum(d.monto for d in descuentos_mes)
 
-        self.descuentos = int(total_descuentos)
+        # 5) totales
         self.descuentos_totales = self.desc_afp + self.descuentos
         self.sueldo_liquido = self.sbruto - self.descuentos_totales
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args, **kwargs):
         self.calcular_campos()
         super().save(*args, **kwargs)
 
-    def __str__(self) -> str:
-        return f"Liquidación {self.rut} {self.mes}/{self.anio}"
+    def __str__(self):
+        return f"{self.rut} - {self.mes}/{self.anio}"

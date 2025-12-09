@@ -1,10 +1,18 @@
 from django.urls import path
-from . import views
+from .views import (
+    login_view,
+    logout_view,
+    dashboard_admin,
+    dashboard_trabajador,
+    dashboard_jefe,
+)
 
 urlpatterns = [
-    path("", views.login_view, name="login"),
-    path("logout/", views.logout_view, name="logout"),
-    path("dashboard/admin/", views.dashboard_admin, name="dashboard_admin"),
-    path("dashboard/trabajador/", views.dashboard_trabajador, name="dashboard_trabajador"),
-    path("dashboard/jefe/", views.dashboard_jefe, name="dashboard_jefe"),
+    path("", login_view, name="login"),
+    path("logout/", logout_view, name="logout"),
+
+    path("admin-dashboard/", dashboard_admin, name="dashboard_admin"),
+    path("trabajador-dashboard/", dashboard_trabajador, name="dashboard_trabajador"),
+    path("jefe-dashboard/", dashboard_jefe, name="dashboard_jefe"),
 ]
+

@@ -69,7 +69,7 @@ WSGI_APPLICATION = "eva2LopezJorge_prj.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "mysql.connector.django",
-        "NAME": "eva2LopezJorge",
+        'NAME': 'eva3LopezJorge',
         "USER": "root",
         "PASSWORD": "root",
         "HOST": "localhost",

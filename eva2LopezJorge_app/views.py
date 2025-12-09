@@ -1,129 +1,123 @@
 from django.shortcuts import render, redirect
 from django.contrib import messages
-from django.utils import timezone
+from django.contrib.sessions.backends.db import SessionStore
 
 from .models import Usuarios
 from .forms import LoginForm
+
 from eva2Trabajador_app.models import Trabajador, Liquidaciones, Descuentos
+from datetime import date
 
 
+# -----------------------------------------------------------
+# LOGIN
+# -----------------------------------------------------------
 def login_view(request):
     if request.method == "POST":
         form = LoginForm(request.POST)
-        if form.is_valid():
-            usuario = form.cleaned_data["usuario"]
-            contrasena = form.cleaned_data["contrasena"]
 
+        if form.is_valid():
+            username = form.cleaned_data["username"]
+            password = form.cleaned_data["password"]
+
+            # Buscar usuario
             try:
-                u = Usuarios.objects.get(username=usuario)
+                usuario = Usuarios.objects.get(username=username)
             except Usuarios.DoesNotExist:
                 messages.error(request, "Usuario no registrado")
-                return render(request, "eva2LopezJorge_app/login.html", {"form": form})
+                return redirect("login")
 
-            if u.password != contrasena:
-                messages.error(request, "Usuario no registrado")
-                return render(request, "eva2LopezJorge_app/login.html", {"form": form})
+            # Comparar contraseñas (texto plano)
+            if usuario.password != password:
+                messages.error(request, "Credenciales incorrectas")
+                return redirect("login")
 
-            request.session["usuario_id"] = u.id
-            request.session["perfil"] = u.perfil
+            # Guardar sesión
+            request.session["usuario_id"] = usuario.id
+            request.session["perfil"] = usuario.perfil
+            request.session["nombre"] = usuario.nombre
+            request.session["username"] = usuario.username
+            request.session["username"] = usuario.username
 
-            if u.perfil == 1:
+            # Redirigir según perfil
+            if usuario.perfil == Usuarios.PERFIL_ADMIN:
                 return redirect("dashboard_admin")
-            elif u.perfil == 2:
+
+            if usuario.perfil == Usuarios.PERFIL_TRABAJADOR:
                 return redirect("dashboard_trabajador")
-            elif u.perfil == 3:
+
+            if usuario.perfil == Usuarios.PERFIL_JEFE:
                 return redirect("dashboard_jefe")
 
     else:
         form = LoginForm()
 
-    return render(request, "eva2LopezJorge_app/login.html", {"form": form})
+    return render(request, "login.html", {"form": form})
 
 
+# -----------------------------------------------------------
+# LOGOUT
+# -----------------------------------------------------------
 def logout_view(request):
     request.session.flush()
     return redirect("login")
 
 
-def _get_usuario_en_sesion(request):
-    uid = request.session.get("usuario_id")
-    if not uid:
-        return None
-    try:
-        return Usuarios.objects.get(id=uid)
-    except Usuarios.DoesNotExist:
-        return None
-
-
+# -----------------------------------------------------------
+# DASHBOARD ADMIN
+# -----------------------------------------------------------
 def dashboard_admin(request):
-    u = _get_usuario_en_sesion(request)
-    if not u or u.perfil != 1:
+    if request.session.get("perfil") != 1:
         return redirect("login")
 
-    return render(request, "eva2LopezJorge_app/dashboard_admin.html", {"usuario": u})
+    return render(request, "dashboard_admin.html")
 
 
+# -----------------------------------------------------------
+# DASHBOARD TRABAJADOR
+# -----------------------------------------------------------
 def dashboard_trabajador(request):
-    u = _get_usuario_en_sesion(request)
-    if not u or u.perfil != 2:
+    if request.session.get("perfil") != 2:
         return redirect("login")
 
-    rut = u.username
-    hoy = timezone.now()
-    mes = hoy.month
-    anio = hoy.year
+    rut = request.session.get("username", "")
+    hoy = date.today()
 
-    trabajador = Trabajador.objects.filter(rut=rut).first()
-    liquidacion = None
-    descuentos = []
+    # Buscar trabajador por rut
+    try:
+        trabajador = Trabajador.objects.get(rut=rut)
+    except Trabajador.DoesNotExist:
+        return render(request, "dashboard_trabajador.html", {"error": "Trabajador no encontrado"})
 
-    if trabajador:
-        liquidacion = Liquidaciones.objects.filter(
-            rut=trabajador.rut,
-            mes=mes,
-            anio=anio,
-        ).first()
+    # Liquidación del mes
+    liquidacion = Liquidaciones.objects.filter(
+        rut=rut,
+        mes=hoy.month,
+        anio=hoy.year
+    ).first()
 
-        descuentos = Descuentos.objects.filter(
-            rut=trabajador.rut,
-            fecha__year=anio,
-            fecha__month=mes,
-        )
+    descuentos = Descuentos.objects.filter(
+        rut=rut,
+        fecha__year=hoy.year,
+        fecha__month=hoy.month
+    )
 
     contexto = {
-        "usuario": u,
-        "rut": rut,
         "trabajador": trabajador,
         "liquidacion": liquidacion,
-        "descuentos": descuentos,
-        "mes": mes,
-        "anio": anio,
+        "descuentos": descuentos
     }
-    return render(request, "eva2LopezJorge_app/dashboard_trabajador.html", contexto)
+
+    return render(request, "dashboard_trabajador.html", contexto)
 
 
+# -----------------------------------------------------------
+# DASHBOARD JEFE
+# -----------------------------------------------------------
 def dashboard_jefe(request):
-    u = _get_usuario_en_sesion(request)
-    if not u or u.perfil != 3:
+    if request.session.get("perfil") != 3:
         return redirect("login")
 
-    mes = request.GET.get("mes")
-    anio = request.GET.get("anio")
-    liquidaciones = None
+    liquidaciones = Liquidaciones.objects.all().order_by("-anio", "-mes")
 
-    if mes and anio:
-        try:
-            liquidaciones = Liquidaciones.objects.filter(
-                mes=int(mes),
-                anio=int(anio),
-            )
-        except ValueError:
-            liquidaciones = None
-
-    contexto = {
-        "usuario": u,
-        "liquidaciones": liquidaciones,
-        "mes": mes,
-        "anio": anio,
-    }
-    return render(request, "eva2LopezJorge_app/dashboard_jefe.html", contexto)
+    return render(request, "dashboard_jefe.html", {"liquidaciones": liquidaciones})
