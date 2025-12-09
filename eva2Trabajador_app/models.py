@@ -1,40 +1,49 @@
 from django.db import models
 from django.core.exceptions import ValidationError
+from django.db.models import Sum
 
 
 # -------------------------------------------------
 # Validación RUT (Módulo 11)
 # -------------------------------------------------
-def validar_rut_mod11(rut):
-    rut = rut.replace(".", "").replace("-", "").upper()
-    if len(rut) < 2:
-        raise ValidationError("RUT inválido.")
+def validar_rut_mod11(value):
+    # Asegura que es string y elimina espacios
+    rut = str(value).strip().replace(".", "").upper()
 
-    cuerpo = rut[:-1]
-    dv = rut[-1]
+    # Debe venir con guion
+    try:
+        cuerpo, dv = rut.split("-")
+    except ValueError:
+        raise ValidationError("Formato RUT inválido. Debe incluir guion y dígito verificador.")
 
+    # Solo números en el cuerpo
     if not cuerpo.isdigit():
-        raise ValidationError("RUT inválido.")
+        raise ValidationError("Formato RUT inválido. El cuerpo debe ser numérico.")
 
-    suma = 0
-    multiplicador = 2
+    # Calcular DV con módulo 11
+    reversed_digits = list(map(int, reversed(cuerpo)))
+    factors = [2, 3, 4, 5, 6, 7]
 
-    for digito in reversed(cuerpo):
-        suma += int(digito) * multiplicador
-        multiplicador = 9 if multiplicador == 7 else multiplicador + 1
+    s = 0
+    fi = 0
+    for d in reversed_digits:
+        s += d * factors[fi]
+        fi = (fi + 1) % len(factors)
 
-    resto = suma % 11
-    dv_calculado = 11 - resto
+    resto = s % 11
+    dv_calc = 11 - resto
 
-    if dv_calculado == 11:
-        dv_calculado = "0"
-    elif dv_calculado == 10:
-        dv_calculado = "K"
+    if dv_calc == 11:
+        dv_esperado = "0"
+    elif dv_calc == 10:
+        dv_esperado = "K"
     else:
-        dv_calculado = str(dv_calculado)
+        dv_esperado = str(dv_calc)
 
-    if dv != dv_calculado:
-        raise ValidationError("Dígito verificador incorrecto.")
+    # Comparar DV esperado con DV ingresado
+    if dv_esperado != dv:
+        raise ValidationError("RUT inválido según módulo 11.")
+
 
 
 # -------------------------------------------------
@@ -46,7 +55,7 @@ class Afps(models.Model):
     descuento = models.DecimalField(max_digits=5, decimal_places=2)  # Ej: 11.45
 
     def __str__(self):
-        return f"{self.nombre} ({self.descuento}%)"
+        return self.nombre
 
     class Meta:
         db_table = "afps"
@@ -68,9 +77,9 @@ class Trabajador(models.Model):
         validar_rut_mod11(self.rut)
 
         # Validar existencia de AFP
+        from .models import Afps  # Importar aquí para evitar dependencia circular
         if not Afps.objects.filter(nombre=self.afp).exists():
-            raise ValidationError("La AFP indicada no existe en la tabla AFPs.")
-
+            raise ValidationError("La AFP indicada no existe en el sistema.")
     def __str__(self):
         return f"{self.rut} - {self.nombre}"
 
@@ -106,6 +115,7 @@ class Liquidaciones(models.Model):
     rut = models.CharField(max_length=10)
     mes = models.IntegerField()
     anio = models.IntegerField()
+
     sbase = models.IntegerField(default=0)
     sbruto = models.IntegerField(default=0)
     desc_afp = models.IntegerField(default=0)
@@ -115,38 +125,39 @@ class Liquidaciones(models.Model):
 
     class Meta:
         unique_together = ("rut", "mes", "anio")
-        db_table = "liquidaciones"
 
     def calcular_campos(self):
-        # 1) obtener trabajador
+        from .models import Trabajador, Afps, Descuentos
+
+        # 1. Validar existencia de trabajador
         try:
-            trabajador = Trabajador.objects.get(rut=self.rut)
+            t = Trabajador.objects.get(rut=self.rut)
         except Trabajador.DoesNotExist:
-            raise ValidationError("El RUT no corresponde a ningún trabajador registrado.")
+            raise ValidationError({"rut": "El RUT no existe en la tabla Trabajador."})
 
-        # 2) sueldo base y bruto
-        self.sbase = trabajador.base
-        self.sbruto = trabajador.base
+        self.sbase = t.base
+        self.sbruto = t.base  # En la pauta el sueldo bruto = base
 
-        # 3) descuento AFP
-        afp = Afps.objects.filter(nombre=trabajador.afp).first()
-        self.desc_afp = int(trabajador.base * (float(afp.descuento) / 100)) if afp else 0
+        # 2. AFP
+        try:
+            afp = Afps.objects.get(nombre=t.afp)
+        except Afps.DoesNotExist:
+            raise ValidationError({"rut": "La AFP asociada al trabajador no existe en Afps."})
 
-        # 4) suma de descuentos del mes
-        descuentos_mes = Descuentos.objects.filter(
+        porcentaje = float(afp.descuento)
+        self.desc_afp = int(self.sbase * (porcentaje / 100))
+
+        # 3. Descuentos del mes y anio
+        total_desc = Descuentos.objects.filter(
             rut=self.rut,
             fecha__year=self.anio,
             fecha__month=self.mes
-        )
-        self.descuentos = sum(d.monto for d in descuentos_mes)
+        ).aggregate(total=Sum("monto"))["total"] or 0
 
-        # 5) totales
+        self.descuentos = int(total_desc)
         self.descuentos_totales = self.desc_afp + self.descuentos
         self.sueldo_liquido = self.sbruto - self.descuentos_totales
 
     def save(self, *args, **kwargs):
         self.calcular_campos()
         super().save(*args, **kwargs)
-
-    def __str__(self):
-        return f"{self.rut} - {self.mes}/{self.anio}"

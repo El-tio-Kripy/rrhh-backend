@@ -1,12 +1,13 @@
+from datetime import date
+import hashlib
+
 from django.shortcuts import render, redirect
 from django.contrib import messages
-from django.contrib.sessions.backends.db import SessionStore
 
 from .models import Usuarios
 from .forms import LoginForm
 
 from eva2Trabajador_app.models import Trabajador, Liquidaciones, Descuentos
-from datetime import date
 
 
 # -----------------------------------------------------------
@@ -27,8 +28,9 @@ def login_view(request):
                 messages.error(request, "Usuario no registrado")
                 return redirect("login")
 
-            # Comparar contraseñas (texto plano)
-            if usuario.password != password:
+            # Comparar contraseñas usando HASH SHA256 (coherente con el modelo)
+            hash_ingresado = hashlib.sha256(password.encode("utf-8")).hexdigest()
+            if hash_ingresado != usuario.hash:
                 messages.error(request, "Credenciales incorrectas")
                 return redirect("login")
 
@@ -36,7 +38,6 @@ def login_view(request):
             request.session["usuario_id"] = usuario.id
             request.session["perfil"] = usuario.perfil
             request.session["nombre"] = usuario.nombre
-            request.session["username"] = usuario.username
             request.session["username"] = usuario.username
 
             # Redirigir según perfil
@@ -87,25 +88,29 @@ def dashboard_trabajador(request):
     try:
         trabajador = Trabajador.objects.get(rut=rut)
     except Trabajador.DoesNotExist:
-        return render(request, "dashboard_trabajador.html", {"error": "Trabajador no encontrado"})
+        return render(
+            request,
+            "dashboard_trabajador.html",
+            {"error": "Trabajador no encontrado"},
+        )
 
     # Liquidación del mes
     liquidacion = Liquidaciones.objects.filter(
         rut=rut,
         mes=hoy.month,
-        anio=hoy.year
+        anio=hoy.year,
     ).first()
 
     descuentos = Descuentos.objects.filter(
         rut=rut,
         fecha__year=hoy.year,
-        fecha__month=hoy.month
+        fecha__month=hoy.month,
     )
 
     contexto = {
         "trabajador": trabajador,
         "liquidacion": liquidacion,
-        "descuentos": descuentos
+        "descuentos": descuentos,
     }
 
     return render(request, "dashboard_trabajador.html", contexto)
