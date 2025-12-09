@@ -5,22 +5,23 @@ from .forms import DescuentosForm, LiquidacionesForm
 
 @admin.register(Afps)
 class AfpsAdmin(admin.ModelAdmin):
-    list_display = ("id", "nombre", "descuento")
-    list_editable = ("descuento",)
-    search_fields = ("nombre",)
+    list_display = ("id", "nombre")
 
 
 @admin.register(Trabajador)
 class TrabajadorAdmin(admin.ModelAdmin):
-    list_display = ("id", "rut", "nombre", "base", "afp")
+    list_display = ("rut", "nombre", "base", "afp")
     search_fields = ("rut", "nombre")
     list_filter = ("afp",)
+    # OJO: aquí NO usamos form personalizado.
+    # Como en el modelo Trabajador.afp es ForeignKey(Afps),
+    # el admin usará automáticamente un <select> con las AFP disponibles.
 
 
 @admin.register(Descuentos)
 class DescuentosAdmin(admin.ModelAdmin):
     form = DescuentosForm
-    list_display = ("id", "rut", "fecha", "concepto", "monto")
+    list_display = ("rut", "fecha", "concepto", "monto")
     search_fields = ("rut", "concepto")
     list_filter = ("fecha",)
 
@@ -29,7 +30,6 @@ class DescuentosAdmin(admin.ModelAdmin):
 class LiquidacionesAdmin(admin.ModelAdmin):
     form = LiquidacionesForm
     list_display = (
-        "id",
         "rut",
         "mes",
         "anio",
@@ -42,11 +42,3 @@ class LiquidacionesAdmin(admin.ModelAdmin):
     )
     search_fields = ("rut",)
     list_filter = ("anio", "mes")
-    readonly_fields = (
-        "sbase",
-        "sbruto",
-        "desc_afp",
-        "descuentos",
-        "descuentos_totales",
-        "sueldo_liquido",
-    )
